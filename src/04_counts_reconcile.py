@@ -21,6 +21,28 @@ ENTITIES = ["collectors", "shops", "cards", "orders", "order_items", "payments"]
 
 # COMMAND ----------
 
+# Same audit table the dbt on-run-end hook writes to — one query covers the
+# whole pipeline's QC history across notebooks AND the dbt gate.
+qc_log = f"{catalog}.{schema}.qc_log"
+spark.sql(f"""
+    create table if not exists {qc_log} (
+        logged_at timestamp, run_date date, invocation_id string,
+        source string, check_name string, table_name string,
+        column_name string, status string, failures bigint,
+        execution_time_s double, message string
+    ) using delta
+""")
+
+def log_check(entity, status, failures, message):
+    spark.sql(f"""
+        insert into {qc_log}
+        values (current_timestamp(), current_date(), '{spark.conf.get("spark.databricks.job.runId", "interactive")}',
+                'reconcile', 'bronze_silver_count_reconcile', '{entity}', '',
+                '{status}', {failures}, 0.0, '{message}')
+    """)
+
+# COMMAND ----------
+
 problems, suspicious = [], []
 print(f"{'entity':<14} {'bronze':>8} {'silver':>8} {'ratio':>6}")
 for entity in ENTITIES:
@@ -30,10 +52,15 @@ for entity in ENTITIES:
     print(f"{entity:<14} {bronze:>8} {silver:>8} {ratio:>6.2f}")
     if silver == 0:
         problems.append(f"{entity}: silver is empty")
+        log_check(entity, "fail", bronze, "silver is empty")
     elif silver > bronze:
         problems.append(f"{entity}: silver ({silver}) > bronze ({bronze}) — rows invented")
+        log_check(entity, "fail", silver - bronze, f"silver ({silver}) > bronze ({bronze})")
     elif ratio >= 1.5:
         suspicious.append(f"{entity}: bronze/silver ratio {ratio:.2f} — possible double load masked by dedupe")
+        log_check(entity, "warn", bronze - silver, f"bronze/silver ratio {ratio:.2f} — possible masked double load")
+    else:
+        log_check(entity, "pass", 0, f"bronze={bronze} silver={silver} ratio={ratio:.2f}")
 
 if suspicious:
     print("\n" + "!" * 70)

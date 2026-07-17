@@ -217,8 +217,42 @@ money you can't explain: some tests get thresholds, some get zero.
   - payments→orders and orders→shops: zero tolerance, plain `error`.
   - Rule: **measure the baseline before picking numbers.**
 - `severity: warn` on collector emails — known dirt gets logged, not paged.
+- **Proportion-based RI** (`ref_orphan_proportion`, custom test in
+  `tests/generic/`): the same orders→collectors contract expressed as a
+  *rate* (fail past 1.5% orphans) instead of an absolute count. Absolute
+  thresholds silently loosen as volume grows — 150 orphans is 1.5% of 10k
+  orders but noise in 1M. Both flavors run side by side to teach the contrast.
+- **Volume tests** (`row_count_between`): a delivery that shrank or ballooned
+  is wrong even if every row in it is individually valid. Bounds come from
+  the measured baseline (~10k orders, ~20k items).
 - Error-severity failure fails the task → fails the job → downstream never
   sees bad data. That's the gate.
+
+## The QC audit log (workspace.lakehouse_demo.qc_log)
+
+Every check in the pipeline writes its result to one queryable Delta table:
+the dbt gate via an `on-run-end` hook (`macros/log_qc_results.sql`), and the
+counts-reconcile notebook directly. Columns: `logged_at`, `run_date`,
+`invocation_id`, `source` (dbt | reconcile), `check_name`, `table_name`,
+`column_name` (where the issue is), `status` (pass | warn | fail | error),
+`failures`, `message`.
+
+The job UI tells you a run failed; this table tells you *what* has been
+failing, on which table/column, over time:
+
+```sql
+-- everything that isn't clean, newest first
+select logged_at, source, table_name, column_name, status, failures
+from workspace.lakehouse_demo.qc_log
+where status != 'pass'
+order by logged_at desc;
+
+-- is the orphan rate drifting week over week?
+select run_date, max(failures) as orphans
+from workspace.lakehouse_demo.qc_log
+where table_name = 'silver_orders' and column_name = 'collector_id'
+group by 1 order by 1;
+```
 
 ## Free Edition limits that shaped this template
 

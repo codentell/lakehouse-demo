@@ -4,6 +4,11 @@ profile: lakehouse_demo
 
 model-paths: ["models"]
 
+# After every run, write each test result (status, table, column, failures)
+# to the queryable Delta audit table workspace.<schema>.qc_log.
+on-run-end:
+  - "{{ log_qc_results(results) }}"
+
 models:
   lakehouse_demo:
     staging:

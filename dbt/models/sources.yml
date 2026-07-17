@@ -3,6 +3,14 @@ version: 2
 # Tests on SOURCES catch load problems before any transformation runs.
 # This is the layer that catches the double-load demo: silver dedupes it
 # away, so if you only tested silver you would never know it happened.
+#
+# Two flavors of referential-integrity contract live side by side here:
+#   - `relationships` with ABSOLUTE thresholds (error_if: >150) — simple, but
+#     silently loosens as volume grows.
+#   - `ref_orphan_proportion` with a RATE threshold (max 1.5%) — the same
+#     contract expressed in a way that survives a 100x volume change.
+# Every result (pass/warn/fail, table, column, failure count) also lands in
+# the queryable Delta audit table `qc_log` via the on-run-end hook.
 sources:
   - name: lakehouse_demo
     catalog: workspace
@@ -41,49 +49,79 @@ sources:
             tests: [unique, not_null]
 
       - name: silver_orders
+        tests:
+          # Volume test: a delivery that shrank or ballooned is wrong even if
+          # every row in it is valid. Bounds = measured baseline (~10k) ± slack.
+          - row_count_between:
+              arguments:
+                min_rows: 8000
+                max_rows: 12000
         columns:
           - name: order_id
             tests: [unique, not_null]
           - name: collector_id
             tests:
-              # Referential integrity in 4 lines: every order's collector must
-              # exist. Thresholds turn a judgment call into config: the vendor
+              # Referential integrity with an ABSOLUTE threshold: the vendor
               # baseline is ~100 orphans (1% of 10k), so warn at the baseline
-              # and only ERROR if it regresses past 150 — that's a new problem,
-              # not the known dirt. Measure the baseline BEFORE picking numbers.
+              # and only ERROR past 150 — that's a new problem, not the known
+              # dirt. Measure the baseline BEFORE picking numbers.
               - relationships:
-                  to: source('lakehouse_demo', 'silver_collectors')
-                  field: collector_id
+                  arguments:
+                    to: source('lakehouse_demo', 'silver_collectors')
+                    field: collector_id
                   config:
                     severity: error
                     warn_if: ">0"
                     error_if: ">150"
+              # The same contract as a PROPORTION: fail if the orphan RATE
+              # tops 1.5% (baseline ~1.1%). Unlike the absolute threshold,
+              # this stays meaningful when volume grows 100x.
+              - ref_orphan_proportion:
+                  arguments:
+                    to: source('lakehouse_demo', 'silver_collectors')
+                    field: collector_id
+                    max_orphan_pct: 1.5
           - name: shop_id
             tests:
               # Internal dimension we control — zero tolerance, plain error.
               - relationships:
-                  to: source('lakehouse_demo', 'silver_shops')
-                  field: shop_id
+                  arguments:
+                    to: source('lakehouse_demo', 'silver_shops')
+                    field: shop_id
 
       - name: silver_order_items
+        tests:
+          # ~2 items per order + 15 injected orphans → baseline ~20k.
+          - row_count_between:
+              arguments:
+                min_rows: 15000
+                max_rows: 35000
         columns:
           - name: order_item_id
             tests: [unique, not_null]
           - name: order_id
             tests:
               - relationships:
-                  to: source('lakehouse_demo', 'silver_orders')
-                  field: order_id
+                  arguments:
+                    to: source('lakehouse_demo', 'silver_orders')
+                    field: order_id
           - name: card_id
             tests:
               # Measured baseline: ~15 orphan card refs per delivery.
               - relationships:
-                  to: source('lakehouse_demo', 'silver_cards')
-                  field: card_id
+                  arguments:
+                    to: source('lakehouse_demo', 'silver_cards')
+                    field: card_id
                   config:
                     severity: error
                     warn_if: ">0"
                     error_if: ">25"
+              # Rate version: 15 / ~20k ≈ 0.075% baseline → fail past 0.15%.
+              - ref_orphan_proportion:
+                  arguments:
+                    to: source('lakehouse_demo', 'silver_cards')
+                    field: card_id
+                    max_orphan_pct: 0.15
 
       - name: silver_payments
         columns:
@@ -94,5 +132,6 @@ sources:
               # A payment for an order that doesn't exist is money we can't
               # explain — no threshold, any row is an error.
               - relationships:
-                  to: source('lakehouse_demo', 'silver_orders')
-                  field: order_id
+                  arguments:
+                    to: source('lakehouse_demo', 'silver_orders')
+                    field: order_id
