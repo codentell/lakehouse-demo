@@ -21,7 +21,7 @@ from pyspark.sql import functions as F
 
 dbutils.widgets.text("catalog", "workspace")
 dbutils.widgets.text("schema", "lakehouse_demo")
-dbutils.widgets.text("entity", "customers")
+dbutils.widgets.text("entity", "collectors")
 dbutils.widgets.text("simulate_double_load", "false")
 
 catalog = dbutils.widgets.get("catalog")

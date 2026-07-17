@@ -17,7 +17,7 @@ dbutils.widgets.text("schema", "lakehouse_demo")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 
-ENTITIES = ["customers", "stores", "products", "orders", "order_items", "payments"]
+ENTITIES = ["collectors", "shops", "cards", "orders", "order_items", "payments"]
 
 # COMMAND ----------
 

@@ -5,15 +5,17 @@ template students can fork**: a production-shaped pipeline (asset bundle,
 dev/prod targets, git-driven deploys, complex task DAG, dbt quality gate)
 that runs entirely on Databricks Free Edition at zero cost.
 
-A small retail model (customers / stores / products / orders / order_items /
-payments) with **deliberately dirty data**, processed through a production-shaped DAG:
+A small **Pokémon TCG marketplace** model (collectors / shops / cards /
+orders / order_items / payments) with **deliberately dirty data** — real card
+names, sets, and rarity-driven prices (Charizard carries the market, as
+always) — processed through a production-shaped DAG:
 
 ```
 generate_raw
     └── manifest_count                      (gate: fail in seconds, not hours)
-          ├── bronze_customers ── silver_customers ──┐
-          ├── bronze_stores ───── silver_stores ─────┤
-          ├── bronze_products ─── silver_products ───┼─┐
+          ├── bronze_collectors ─ silver_collectors ─┐
+          ├── bronze_shops ────── silver_shops ──────┤
+          ├── bronze_cards ────── silver_cards ──────┼─┐
           ├── bronze_orders ──────────────┐          │ │
           │                               ├─ silver_orders ──┬───────────────┐
           ├── bronze_order_items ─────────┼──────────────────┼─ silver_order_items
@@ -38,7 +40,7 @@ daily serverless quota are the real constraints.
 lakehouse-demo/
 ├── databricks.yml                  # DAB: variables + dev/prod targets
 ├── resources/
-│   └── retail_pipeline.job.yml     # the 17-task DAG + dbt gate
+│   └── tcg_pipeline.job.yml        # the 17-task DAG + dbt gate
 ├── src/
 │   ├── 00_generate_raw_data.py     # synthetic vendor files (with injected dirt)
 │   ├── 01_manifest_count.py        # delivery gate: all files present & non-empty
@@ -65,7 +67,7 @@ lakehouse-demo/
 2. Install the CLI: `brew install databricks`
 3. Authenticate: `databricks auth login --host https://<your-workspace>.cloud.databricks.com`
 4. Deploy: `databricks bundle deploy -t dev` (from this folder)
-5. Run: `databricks bundle run -t dev retail_pipeline`
+5. Run: `databricks bundle run -t dev tcg_pipeline`
 
 The job's final `dbt_quality_gate` task runs `dbt build` on the serverless SQL
 warehouse (pinned `dbt-databricks==1.11.8`) — no local dbt needed. To also run
@@ -123,6 +125,37 @@ This section is for running `dbt build` from your own machine.
                  # so run the Databricks job at least once first)
    ```
 
+## Local credentials via .env
+
+For token-based auth (instead of `databricks auth login` OAuth), keep your
+credentials in a `.env` file at the repo root — it's gitignored, so it can
+never be committed.
+
+1. Copy the template and fill it in:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   - `DATABRICKS_HOST` — your workspace URL **with** `https://`
+   - `DATABRICKS_TOKEN` — a PAT from **Settings → Developer → Access tokens**
+   - `DBT_DATABRICKS_TOKEN` — the same PAT; this is the name
+     `dbt/profiles.yml.example` reads for local dbt runs
+
+2. Load it into your shell before running CLI or dbt commands:
+
+   ```bash
+   set -a; source .env; set +a
+   ```
+
+   The Databricks CLI picks up `DATABRICKS_HOST`/`DATABRICKS_TOKEN`
+   automatically, so `databricks bundle deploy -t dev` works with no auth
+   profile. (Tools like [direnv](https://direnv.net) can auto-load `.env` on
+   `cd` if you prefer.)
+
+3. Rotate the token in the workspace UI if it ever leaks — a PAT is a
+   password.
+
 ## What you need to add to make this pipeline work
 
 Out of the box the repo is a template — these are the pieces *you* supply:
@@ -134,12 +167,12 @@ Out of the box the repo is a template — these are the pieces *you* supply:
 | SQL warehouse name match | `databricks.yml` → `warehouse_id` lookup | The bundle looks up a warehouse named **"Serverless Starter Warehouse"** (Free Edition default). Renamed yours? Update the lookup |
 | Local dbt profile (optional) | `~/.dbt/profiles.yml` | Only for running dbt from your laptop — see the section above |
 | GitHub secrets (CI/CD only) | Repo **Settings → Secrets and variables → Actions**: `DATABRICKS_HOST` (full URL with `https://`) and `DATABRICKS_TOKEN` (a PAT, or a service-principal token in real production) | Both workflows in `.github/workflows/` deploy with these; without them CI fails at the deploy step |
-| Job notification email | `resources/retail_pipeline.job.yml` → `email_notifications` | Points at the deploying user by default; set a real address/list if you want on-call-style alerts |
+| Job notification email | `resources/tcg_pipeline.job.yml` → `email_notifications` | Points at the deploying user by default; set a real address/list if you want on-call-style alerts |
 
 Deploy order that works from a fresh clone:
 
 1. `databricks auth login ...` → 2. `databricks bundle deploy -t dev` →
-3. `databricks bundle run -t dev retail_pipeline` (creates schema + all tables,
+3. `databricks bundle run -t dev tcg_pipeline` (creates schema + all tables,
    ends with the dbt gate) → 4. optionally set up local dbt and CI secrets.
 
 ## The demo script (maps to talk segments)
@@ -157,7 +190,7 @@ Deploy order that works from a fresh clone:
 
 **The finale — the masked double load (5 min):**
 1. Run the pipeline normally: all 17 tasks green. The gate passes with
-   *warnings* (orders→customers and order_items→products orphans — known
+   *warnings* (orders→collectors and order_items→cards orphans — known
    vendor dirt absorbed by thresholds).
 2. Re-run with parameter `simulate_double_load = true`: every task still
    green. Bronze has 2× rows; silver dedupes it away so counts look fine.
@@ -178,12 +211,12 @@ money you can't explain: some tests get thresholds, some get zero.
 - `unique` / `not_null` on every business key — catches the double load at
   the bronze layer, where dedupe can't mask it.
 - `relationships` (referential integrity) with a **threshold system**:
-  - orders→customers: measured vendor baseline ~1% → `warn_if: >0`,
+  - orders→collectors: measured vendor baseline ~1% → `warn_if: >0`,
     `error_if: >150`. Warn on known dirt, error on regression.
-  - order_items→products: baseline ~15 → `warn_if: >0`, `error_if: >25`.
-  - payments→orders and orders→stores: zero tolerance, plain `error`.
+  - order_items→cards: baseline ~15 → `warn_if: >0`, `error_if: >25`.
+  - payments→orders and orders→shops: zero tolerance, plain `error`.
   - Rule: **measure the baseline before picking numbers.**
-- `severity: warn` on customer emails — known dirt gets logged, not paged.
+- `severity: warn` on collector emails — known dirt gets logged, not paged.
 - Error-severity failure fails the task → fails the job → downstream never
   sees bad data. That's the gate.
 

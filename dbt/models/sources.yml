@@ -18,9 +18,9 @@ sources:
               - unique
               - not_null
 
-      - name: silver_customers
+      - name: silver_collectors
         columns:
-          - name: customer_id
+          - name: collector_id
             tests: [unique, not_null]
           - name: email
             tests:
@@ -30,40 +30,40 @@ sources:
                   config:
                     severity: warn
 
-      - name: silver_stores
+      - name: silver_shops
         columns:
-          - name: store_id
+          - name: shop_id
             tests: [unique, not_null]
 
-      - name: silver_products
+      - name: silver_cards
         columns:
-          - name: product_id
+          - name: card_id
             tests: [unique, not_null]
 
       - name: silver_orders
         columns:
           - name: order_id
             tests: [unique, not_null]
-          - name: customer_id
+          - name: collector_id
             tests:
-              # Referential integrity in 4 lines: every order's customer must
+              # Referential integrity in 4 lines: every order's collector must
               # exist. Thresholds turn a judgment call into config: the vendor
               # baseline is ~100 orphans (1% of 10k), so warn at the baseline
               # and only ERROR if it regresses past 150 — that's a new problem,
               # not the known dirt. Measure the baseline BEFORE picking numbers.
               - relationships:
-                  to: source('lakehouse_demo', 'silver_customers')
-                  field: customer_id
+                  to: source('lakehouse_demo', 'silver_collectors')
+                  field: collector_id
                   config:
                     severity: error
                     warn_if: ">0"
                     error_if: ">150"
-          - name: store_id
+          - name: shop_id
             tests:
               # Internal dimension we control — zero tolerance, plain error.
               - relationships:
-                  to: source('lakehouse_demo', 'silver_stores')
-                  field: store_id
+                  to: source('lakehouse_demo', 'silver_shops')
+                  field: shop_id
 
       - name: silver_order_items
         columns:
@@ -74,12 +74,12 @@ sources:
               - relationships:
                   to: source('lakehouse_demo', 'silver_orders')
                   field: order_id
-          - name: product_id
+          - name: card_id
             tests:
-              # Measured baseline: ~15 orphan product refs per delivery.
+              # Measured baseline: ~15 orphan card refs per delivery.
               - relationships:
-                  to: source('lakehouse_demo', 'silver_products')
-                  field: product_id
+                  to: source('lakehouse_demo', 'silver_cards')
+                  field: card_id
                   config:
                     severity: error
                     warn_if: ">0"

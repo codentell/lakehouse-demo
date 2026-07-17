@@ -15,11 +15,12 @@
 #     installing dbt. Same gate, different plumbing.
 resources:
   jobs:
-    retail_pipeline:
-      name: ${var.sdlc_env}_retail_pipeline
+    tcg_pipeline:
+      name: ${var.sdlc_env}_tcg_pipeline
       description: |
-        Demo lakehouse pipeline: raw JSON -> bronze (per entity) -> silver
-        (per entity, FK-ordered) -> counts reconcile -> dbt quality gate.
+        Pokemon TCG marketplace lakehouse pipeline: raw JSON (collectors,
+        shops, cards, orders, order_items, payments) -> bronze (per entity) ->
+        silver (per entity, FK-ordered) -> counts reconcile -> dbt quality gate.
         The gate runs `dbt build`; any error-severity test failure fails the job.
 
       # Teaching point: alerting is declared with the job. In production this
@@ -78,23 +79,23 @@ resources:
             notebook_path: ../src/01_manifest_count.py
 
         # ---- bronze fan-out: one parameterized notebook, six tasks --------
-        - task_key: bronze_customers
+        - task_key: bronze_collectors
           depends_on: [{task_key: manifest_count}]
           notebook_task:
             notebook_path: ../src/02_bronze_load.py
-            base_parameters: {entity: customers}
+            base_parameters: {entity: collectors}
 
-        - task_key: bronze_stores
+        - task_key: bronze_shops
           depends_on: [{task_key: manifest_count}]
           notebook_task:
             notebook_path: ../src/02_bronze_load.py
-            base_parameters: {entity: stores}
+            base_parameters: {entity: shops}
 
-        - task_key: bronze_products
+        - task_key: bronze_cards
           depends_on: [{task_key: manifest_count}]
           notebook_task:
             notebook_path: ../src/02_bronze_load.py
-            base_parameters: {entity: products}
+            base_parameters: {entity: cards}
 
         - task_key: bronze_orders
           depends_on: [{task_key: manifest_count}]
@@ -115,30 +116,30 @@ resources:
             base_parameters: {entity: payments}
 
         # ---- silver: FK-ordered, so the graph has cross-entity edges ------
-        - task_key: silver_customers
-          depends_on: [{task_key: bronze_customers}]
+        - task_key: silver_collectors
+          depends_on: [{task_key: bronze_collectors}]
           notebook_task:
             notebook_path: ../src/03_silver_transform.py
-            base_parameters: {entity: customers}
+            base_parameters: {entity: collectors}
 
-        - task_key: silver_stores
-          depends_on: [{task_key: bronze_stores}]
+        - task_key: silver_shops
+          depends_on: [{task_key: bronze_shops}]
           notebook_task:
             notebook_path: ../src/03_silver_transform.py
-            base_parameters: {entity: stores}
+            base_parameters: {entity: shops}
 
-        - task_key: silver_products
-          depends_on: [{task_key: bronze_products}]
+        - task_key: silver_cards
+          depends_on: [{task_key: bronze_cards}]
           notebook_task:
             notebook_path: ../src/03_silver_transform.py
-            base_parameters: {entity: products}
+            base_parameters: {entity: cards}
 
         # orders waits on its dimensions — fact tables load after their dims
         - task_key: silver_orders
           depends_on:
             - task_key: bronze_orders
-            - task_key: silver_customers
-            - task_key: silver_stores
+            - task_key: silver_collectors
+            - task_key: silver_shops
           notebook_task:
             notebook_path: ../src/03_silver_transform.py
             base_parameters: {entity: orders}
@@ -147,7 +148,7 @@ resources:
           depends_on:
             - task_key: bronze_order_items
             - task_key: silver_orders
-            - task_key: silver_products
+            - task_key: silver_cards
           notebook_task:
             notebook_path: ../src/03_silver_transform.py
             base_parameters: {entity: order_items}
@@ -163,9 +164,9 @@ resources:
         # ---- fan-in QC ----------------------------------------------------
         - task_key: counts_reconcile
           depends_on:
-            - task_key: silver_customers
-            - task_key: silver_stores
-            - task_key: silver_products
+            - task_key: silver_collectors
+            - task_key: silver_shops
+            - task_key: silver_cards
             - task_key: silver_orders
             - task_key: silver_order_items
             - task_key: silver_payments

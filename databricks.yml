@@ -7,7 +7,7 @@
 #   1. Install CLI:  brew install databricks  (or curl installer)
 #   2. Login:        databricks auth login --host https://<your-workspace>.cloud.databricks.com
 #   3. Deploy:       databricks bundle deploy -t dev
-#   4. Run:          databricks bundle run -t dev retail_pipeline
+#   4. Run:          databricks bundle run -t dev tcg_pipeline
 bundle:
   name: lakehouse-demo
 

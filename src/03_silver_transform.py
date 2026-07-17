@@ -16,7 +16,7 @@ from pyspark.sql.window import Window
 
 dbutils.widgets.text("catalog", "workspace")
 dbutils.widgets.text("schema", "lakehouse_demo")
-dbutils.widgets.text("entity", "customers")
+dbutils.widgets.text("entity", "collectors")
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
@@ -24,21 +24,23 @@ entity = dbutils.widgets.get("entity")
 
 # One place to define each entity's key and typed columns.
 SILVER = {
-    "customers": ("customer_id", [
-        "cast(customer_id as bigint) as customer_id", "name", "email", "state",
+    "collectors": ("collector_id", [
+        "cast(collector_id as bigint) as collector_id", "handle", "email", "state",
         "cast(signup_date as date) as signup_date"]),
-    "stores": ("store_id", [
-        "cast(store_id as bigint) as store_id", "city", "state"]),
-    "products": ("product_id", [
-        "cast(product_id as bigint) as product_id", "product_name", "category",
-        "cast(price as decimal(10,2)) as price"]),
+    "shops": ("shop_id", [
+        "cast(shop_id as bigint) as shop_id", "shop_name", "city", "state"]),
+    "cards": ("card_id", [
+        "cast(card_id as bigint) as card_id", "card_name", "set_name",
+        "card_number", "rarity", "card_type",
+        "cast(market_price as decimal(10,2)) as market_price"]),
     "orders": ("order_id", [
-        "cast(order_id as bigint) as order_id", "cast(customer_id as bigint) as customer_id",
-        "cast(store_id as bigint) as store_id", "cast(order_ts as timestamp) as order_ts",
+        "cast(order_id as bigint) as order_id", "cast(collector_id as bigint) as collector_id",
+        "cast(shop_id as bigint) as shop_id", "cast(order_ts as timestamp) as order_ts",
         "cast(amount as decimal(10,2)) as amount", "status"]),
     "order_items": ("order_item_id", [
         "cast(order_item_id as bigint) as order_item_id", "cast(order_id as bigint) as order_id",
-        "cast(product_id as bigint) as product_id", "cast(quantity as int) as quantity"]),
+        "cast(card_id as bigint) as card_id", "cast(quantity as int) as quantity",
+        "condition"]),
     "payments": ("payment_id", [
         "cast(payment_id as bigint) as payment_id", "cast(order_id as bigint) as order_id",
         "method", "cast(paid_amount as decimal(10,2)) as paid_amount"]),
@@ -76,5 +78,5 @@ print(f"{table}: {spark.table(table).count()} rows")
 # COMMAND ----------
 
 # from pyspark.sql import Row
-# bad = spark.createDataFrame([Row(order_id="not-a-number", customer_id=1)])
+# bad = spark.createDataFrame([Row(order_id="not-a-number", collector_id=1)])
 # bad.write.format("delta").mode("append").saveAsTable(f"{catalog}.{schema}.silver_orders")

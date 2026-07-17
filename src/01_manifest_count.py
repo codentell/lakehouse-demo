@@ -15,7 +15,7 @@ catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 raw_root = f"/Volumes/{catalog}/{schema}/raw"
 
-ENTITIES = ["customers", "stores", "products", "orders", "order_items", "payments"]
+ENTITIES = ["collectors", "shops", "cards", "orders", "order_items", "payments"]
 
 # COMMAND ----------
 
