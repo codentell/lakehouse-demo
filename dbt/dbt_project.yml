@@ -1,0 +1,12 @@
+name: lakehouse_demo
+version: "1.0.0"
+profile: lakehouse_demo
+
+model-paths: ["models"]
+
+models:
+  lakehouse_demo:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

@@ -1,0 +1,20 @@
+# Copy to ~/.dbt/profiles.yml (or export DBT_PROFILES_DIR=. and rename to profiles.yml)
+#
+# Free Edition setup:
+#   pip install "dbt-databricks==1.11.8"
+#   (keep this pinned to match the version in resources/retail_pipeline.job.yml)
+#   host:      your workspace URL, e.g. dbc-a1b2c3d4-e5f6.cloud.databricks.com
+#   http_path: SQL Warehouses -> Serverless Starter Warehouse -> Connection details
+#   auth:      `auth_type: oauth` opens a browser to log in — no token to manage.
+#              (If you prefer a PAT: replace auth_type with `token: dapi...`.)
+lakehouse_demo:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: workspace
+      schema: lakehouse_demo
+      host: <your-workspace>.cloud.databricks.com
+      http_path: /sql/1.0/warehouses/<warehouse-id>
+      auth_type: oauth
+      threads: 4

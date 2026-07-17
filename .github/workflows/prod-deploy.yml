@@ -1,0 +1,29 @@
+# Production deploys ONLY from an immutable semver tag, never a moving branch.
+# Every prod state maps to a tag — that's your audit trail and your rollback.
+name: Prod Deploy
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+env:
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+jobs:
+  deploy-prod:
+    name: Deploy DAB to Prod
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install Databricks CLI
+        run: curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/v0.297.2/install.sh | sudo sh
+
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Deploy DAB
+        run: databricks bundle deploy -t prod
+
+      - name: Summary
+        run: databricks bundle summary -t prod

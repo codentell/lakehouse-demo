@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: fct_daily_revenue
+    description: Daily revenue rollup — the table the "business" consumes.
+    columns:
+      - name: order_date
+        tests: [unique, not_null]
+      - name: revenue
+        tests: [not_null]

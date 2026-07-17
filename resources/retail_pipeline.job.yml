@@ -1,0 +1,232 @@
+# A production-shaped DAG in miniature: manifest gate -> 6-wide bronze fan-out ->
+# silver with cross-entity FK dependencies -> fan-in QC -> condition task ->
+# dbt quality gate. 17 tasks; renders as a genuinely complex graph in the UI.
+#
+# Free Edition adaptations vs production:
+#   - No `job_clusters:` block — Free Edition is serverless-only; omitting
+#     compute on a task means "run serverless". In prod each cluster of tasks
+#     would pin to a tuned job cluster (node types, autoscaling, init_scripts).
+#   - Free Edition caps CONCURRENCY at 5 tasks account-wide, not DAG size —
+#     the 6-wide bronze fan-out queues instead of running all at once. In prod
+#     this same graph runs 20-wide across multiple clusters. Great teaching
+#     moment: watch the queue in the run UI.
+#   - The dbt gate uses the native serverless `dbt_task` + an `environments`
+#     dependency spec instead of a classic cluster with an init script
+#     installing dbt. Same gate, different plumbing.
+resources:
+  jobs:
+    retail_pipeline:
+      name: ${var.sdlc_env}_retail_pipeline
+      description: |
+        Demo lakehouse pipeline: raw JSON -> bronze (per entity) -> silver
+        (per entity, FK-ordered) -> counts reconcile -> dbt quality gate.
+        The gate runs `dbt build`; any error-severity test failure fails the job.
+
+      # Teaching point: alerting is declared with the job. In production this
+      # block routes to a Slack webhook destination — this is where the 2 AM
+      # message comes from.
+      # webhook_notifications:
+      #   on_failure:
+      #     - id: ${var.fail_notification}
+      email_notifications:
+        on_failure: []  # add your email to demo failure alerts
+
+      # Teaching point: a job that usually takes 20 min but has been running
+      # for 3 hours is an incident nobody was paged for. Health rules catch it.
+      # health:
+      #   rules:
+      #     - metric: RUN_DURATION_SECONDS
+      #       op: GREATER_THAN
+      #       value: 10800
+      timeout_seconds: 3600
+
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: America/New_York
+        pause_status: ${var.pause_status}
+
+      queue:
+        enabled: true
+
+      tags:
+        department: teaching
+        job_type: demo_pipeline
+        sdlc_env: ${var.sdlc_env}
+
+      parameters:
+        - name: env
+          default: ${var.sdlc_env}
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: simulate_double_load
+          default: "false"   # flip to "true" live: tasks stay green, dbt gate catches it
+        - name: run_dbt_gate
+          default: "true"    # condition-task demo: skip the gate without editing the job
+
+      tasks:
+        # ---- ingest gate -------------------------------------------------
+        - task_key: generate_raw
+          notebook_task:
+            notebook_path: ../src/00_generate_raw_data.py
+
+        - task_key: manifest_count
+          depends_on:
+            - task_key: generate_raw
+          notebook_task:
+            notebook_path: ../src/01_manifest_count.py
+
+        # ---- bronze fan-out: one parameterized notebook, six tasks --------
+        - task_key: bronze_customers
+          depends_on: [{task_key: manifest_count}]
+          notebook_task:
+            notebook_path: ../src/02_bronze_load.py
+            base_parameters: {entity: customers}
+
+        - task_key: bronze_stores
+          depends_on: [{task_key: manifest_count}]
+          notebook_task:
+            notebook_path: ../src/02_bronze_load.py
+            base_parameters: {entity: stores}
+
+        - task_key: bronze_products
+          depends_on: [{task_key: manifest_count}]
+          notebook_task:
+            notebook_path: ../src/02_bronze_load.py
+            base_parameters: {entity: products}
+
+        - task_key: bronze_orders
+          depends_on: [{task_key: manifest_count}]
+          notebook_task:
+            notebook_path: ../src/02_bronze_load.py
+            base_parameters: {entity: orders}
+
+        - task_key: bronze_order_items
+          depends_on: [{task_key: manifest_count}]
+          notebook_task:
+            notebook_path: ../src/02_bronze_load.py
+            base_parameters: {entity: order_items}
+
+        - task_key: bronze_payments
+          depends_on: [{task_key: manifest_count}]
+          notebook_task:
+            notebook_path: ../src/02_bronze_load.py
+            base_parameters: {entity: payments}
+
+        # ---- silver: FK-ordered, so the graph has cross-entity edges ------
+        - task_key: silver_customers
+          depends_on: [{task_key: bronze_customers}]
+          notebook_task:
+            notebook_path: ../src/03_silver_transform.py
+            base_parameters: {entity: customers}
+
+        - task_key: silver_stores
+          depends_on: [{task_key: bronze_stores}]
+          notebook_task:
+            notebook_path: ../src/03_silver_transform.py
+            base_parameters: {entity: stores}
+
+        - task_key: silver_products
+          depends_on: [{task_key: bronze_products}]
+          notebook_task:
+            notebook_path: ../src/03_silver_transform.py
+            base_parameters: {entity: products}
+
+        # orders waits on its dimensions — fact tables load after their dims
+        - task_key: silver_orders
+          depends_on:
+            - task_key: bronze_orders
+            - task_key: silver_customers
+            - task_key: silver_stores
+          notebook_task:
+            notebook_path: ../src/03_silver_transform.py
+            base_parameters: {entity: orders}
+
+        - task_key: silver_order_items
+          depends_on:
+            - task_key: bronze_order_items
+            - task_key: silver_orders
+            - task_key: silver_products
+          notebook_task:
+            notebook_path: ../src/03_silver_transform.py
+            base_parameters: {entity: order_items}
+
+        - task_key: silver_payments
+          depends_on:
+            - task_key: bronze_payments
+            - task_key: silver_orders
+          notebook_task:
+            notebook_path: ../src/03_silver_transform.py
+            base_parameters: {entity: payments}
+
+        # ---- fan-in QC ----------------------------------------------------
+        - task_key: counts_reconcile
+          depends_on:
+            - task_key: silver_customers
+            - task_key: silver_stores
+            - task_key: silver_products
+            - task_key: silver_orders
+            - task_key: silver_order_items
+            - task_key: silver_payments
+          notebook_task:
+            notebook_path: ../src/04_counts_reconcile.py
+
+        # ---- condition task: branch the DAG on a job parameter ------------
+        - task_key: check_dbt_gate_enabled
+          depends_on:
+            - task_key: counts_reconcile
+          condition_task:
+            op: EQUAL_TO
+            left: "{{job.parameters.run_dbt_gate}}"
+            right: "true"
+
+        # ---- THE GATE. Error-severity test failure fails the job. ---------
+        - task_key: dbt_quality_gate
+          depends_on:
+            - task_key: check_dbt_gate_enabled
+              outcome: "true"
+          environment_key: dbt_env
+          dbt_task:
+            project_directory: ../dbt
+            catalog: ${var.catalog}
+            schema: ${var.schema}
+            warehouse_id: ${var.warehouse_id}
+            commands:
+              - dbt build
+
+      environments:
+        - environment_key: dbt_env
+          spec:
+            client: "2"
+            dependencies:
+              - dbt-databricks==1.11.8
+
+      # ------------------------------------------------------------------
+      # TEACHING EXHIBIT — what this job looks like on a paid workspace.
+      # Free Edition is serverless-only, so this block stays commented; on
+      # classic compute you'd uncomment it, add `job_cluster_key: etl_cluster`
+      # to each task, and delete the `environments` block above. Note the
+      # moving parts serverless made disappear: instance types, spot bidding,
+      # worker counts, secrets injected as env vars, and an init script that
+      # rebuilds your dependencies on every clean cluster boot.
+      # ------------------------------------------------------------------
+      # job_clusters:
+      #   - job_cluster_key: etl_cluster
+      #     new_cluster:
+      #       spark_version: 15.4.x-scala2.12
+      #       node_type_id: i3.xlarge
+      #       num_workers: 2
+      #       data_security_mode: SINGLE_USER
+      #       enable_elastic_disk: false
+      #       aws_attributes:
+      #         availability: SPOT_WITH_FALLBACK   # spot = ~70% cheaper, can vanish
+      #         first_on_demand: 1                 # driver stays on-demand
+      #         zone_id: us-east-1d
+      #       spark_env_vars:
+      #         # secrets are referenced, never pasted — resolved at runtime
+      #         GIT_TOKEN: "{{secrets/demo-scope/git_token}}"
+      #         DBT_ENV: ${var.sdlc_env}
+      #       init_scripts:
+      #         - workspace:
+      #             destination: ${workspace.root_path}/files/init_scripts/cluster_init.sh

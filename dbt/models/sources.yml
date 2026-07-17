@@ -1,0 +1,98 @@
+version: 2
+
+# Tests on SOURCES catch load problems before any transformation runs.
+# This is the layer that catches the double-load demo: silver dedupes it
+# away, so if you only tested silver you would never know it happened.
+sources:
+  - name: lakehouse_demo
+    catalog: workspace
+    schema: lakehouse_demo
+    tables:
+      - name: bronze_orders
+        description: Append-only landing table. One row per order PER LOAD.
+        columns:
+          - name: order_id
+            tests:
+              # Fires when simulate_double_load=true: every task stayed green,
+              # this is the only thing in the pipeline that formally fails.
+              - unique
+              - not_null
+
+      - name: silver_customers
+        columns:
+          - name: customer_id
+            tests: [unique, not_null]
+          - name: email
+            tests:
+              # Vendor always sends ~2% null emails. severity: warn = log it,
+              # don't page anyone at 2 AM for known dirt.
+              - not_null:
+                  config:
+                    severity: warn
+
+      - name: silver_stores
+        columns:
+          - name: store_id
+            tests: [unique, not_null]
+
+      - name: silver_products
+        columns:
+          - name: product_id
+            tests: [unique, not_null]
+
+      - name: silver_orders
+        columns:
+          - name: order_id
+            tests: [unique, not_null]
+          - name: customer_id
+            tests:
+              # Referential integrity in 4 lines: every order's customer must
+              # exist. Thresholds turn a judgment call into config: the vendor
+              # baseline is ~100 orphans (1% of 10k), so warn at the baseline
+              # and only ERROR if it regresses past 150 — that's a new problem,
+              # not the known dirt. Measure the baseline BEFORE picking numbers.
+              - relationships:
+                  to: source('lakehouse_demo', 'silver_customers')
+                  field: customer_id
+                  config:
+                    severity: error
+                    warn_if: ">0"
+                    error_if: ">150"
+          - name: store_id
+            tests:
+              # Internal dimension we control — zero tolerance, plain error.
+              - relationships:
+                  to: source('lakehouse_demo', 'silver_stores')
+                  field: store_id
+
+      - name: silver_order_items
+        columns:
+          - name: order_item_id
+            tests: [unique, not_null]
+          - name: order_id
+            tests:
+              - relationships:
+                  to: source('lakehouse_demo', 'silver_orders')
+                  field: order_id
+          - name: product_id
+            tests:
+              # Measured baseline: ~15 orphan product refs per delivery.
+              - relationships:
+                  to: source('lakehouse_demo', 'silver_products')
+                  field: product_id
+                  config:
+                    severity: error
+                    warn_if: ">0"
+                    error_if: ">25"
+
+      - name: silver_payments
+        columns:
+          - name: payment_id
+            tests: [unique, not_null]
+          - name: order_id
+            tests:
+              # A payment for an order that doesn't exist is money we can't
+              # explain — no threshold, any row is an error.
+              - relationships:
+                  to: source('lakehouse_demo', 'silver_orders')
+                  field: order_id

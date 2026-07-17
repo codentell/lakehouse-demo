@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+
+# Databricks CLI / VS Code extension local state
+.databricks/
+
+# dbt — local artifacts and credentials
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/profiles.yml
+logs/
+
+# Never commit real connection profiles or env files
+profiles.yml
+.env
+.env.*
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Editors
+.vscode/
+.idea/

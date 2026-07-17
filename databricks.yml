@@ -1,0 +1,55 @@
+# Databricks Asset Bundle for the lakehouse demo.
+# Works on Databricks Free Edition (serverless compute only).
+# Structure intentionally mirrors a production multi-env bundle:
+# variables + targets so ONE set of job definitions serves every environment.
+#
+# Setup:
+#   1. Install CLI:  brew install databricks  (or curl installer)
+#   2. Login:        databricks auth login --host https://<your-workspace>.cloud.databricks.com
+#   3. Deploy:       databricks bundle deploy -t dev
+#   4. Run:          databricks bundle run -t dev retail_pipeline
+bundle:
+  name: lakehouse-demo
+
+include:
+  - resources/*.yml
+
+variables:
+  sdlc_env:
+    description: Environment name, prefixed onto job names and schemas
+    default: dev
+  catalog:
+    description: Unity Catalog catalog (Free Edition default is `workspace`)
+    default: workspace
+  schema:
+    description: Schema for all demo tables
+    default: lakehouse_demo
+  pause_status:
+    description: Schedules paused outside prod so dev never runs itself
+    default: PAUSED
+  warehouse_id:
+    description: SQL warehouse for the dbt quality gate. Looked up by name —
+      "Serverless Starter Warehouse" is what Free Edition ships with.
+    lookup:
+      warehouse: "Serverless Starter Warehouse"
+
+targets:
+  dev:
+    default: true
+    mode: development   # prefixes resources with your username + pauses schedules
+    # Host comes from your CLI auth profile. To hardcode instead:
+    # workspace:
+    #   host: https://<your-workspace>.cloud.databricks.com
+
+  # Free Edition allows only ONE workspace, so "prod" here is the same
+  # workspace with different variables — but the PATTERN is the real thing:
+  # in production these targets point at separate dev/prod workspaces and
+  # prod deploys only happen from CI on a git tag.
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      sdlc_env: prod
+      schema: lakehouse_demo_prod
+      pause_status: UNPAUSED

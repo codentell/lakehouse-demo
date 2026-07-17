@@ -1,0 +1,28 @@
+# Mirrors the production pattern: merge to main -> dev workspace stays current.
+name: Dev Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+jobs:
+  deploy-dev:
+    name: Deploy DAB to Dev
+    runs-on: ubuntu-24.04
+    steps:
+      # Pin the CLI version — "latest" breaks CI at the worst possible time.
+      - name: Install Databricks CLI
+        run: curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/v0.297.2/install.sh | sudo sh
+
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Deploy DAB
+        run: databricks bundle deploy -t dev
+
+      - name: Summary
+        run: databricks bundle summary -t dev
