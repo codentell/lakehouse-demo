@@ -14,8 +14,12 @@
 
 dbutils.widgets.text("catalog", "workspace")
 dbutils.widgets.text("schema", "lakehouse_demo")
+# Injected by the job as {{job.run_id}} — serverless compute doesn't expose
+# spark.databricks.job.runId, so the run id must arrive as a parameter.
+dbutils.widgets.text("job_run_id", "interactive")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
+job_run_id = dbutils.widgets.get("job_run_id")
 
 ENTITIES = ["collectors", "shops", "cards", "orders", "order_items", "payments"]
 
@@ -36,7 +40,7 @@ spark.sql(f"""
 def log_check(entity, status, failures, message):
     spark.sql(f"""
         insert into {qc_log}
-        values (current_timestamp(), current_date(), '{spark.conf.get("spark.databricks.job.runId", "interactive")}',
+        values (current_timestamp(), current_date(), '{job_run_id}',
                 'reconcile', 'bronze_silver_count_reconcile', '{entity}', '',
                 '{status}', {failures}, 0.0, '{message}')
     """)

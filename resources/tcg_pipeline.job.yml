@@ -172,6 +172,8 @@ resources:
             - task_key: silver_payments
           notebook_task:
             notebook_path: ../src/04_counts_reconcile.py
+            base_parameters:
+              job_run_id: "{{job.run_id}}"
 
         # ---- condition task: branch the DAG on a job parameter ------------
         - task_key: check_dbt_gate_enabled
