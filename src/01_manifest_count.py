@@ -5,7 +5,7 @@
 # MAGIC delivered every file and none are empty. In production this task compares
 # MAGIC file counts and row counts against a vendor-provided manifest; a missing
 # MAGIC file fails the job HERE, in seconds, instead of 3 hours into a transform.
-# MAGIC Every downstream task depends on this one.
+# MAGIC Every downstream task depends on this one. Hello 
 
 # COMMAND ----------
 
